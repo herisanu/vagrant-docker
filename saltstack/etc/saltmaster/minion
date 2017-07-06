@@ -1,0 +1,6 @@
+# -*- mode: yaml -*-
+# vi: set ft=yaml :
+#
+
+id: saltmaster
+master: saltmaster.example.com

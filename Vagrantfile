@@ -28,24 +28,7 @@ Vagrant.configure(2) do |config|
           d.env = { "container" => "docker" }
           d.volumes = ["/sys/fs/cgroup:/sys/fs/cgroup:ro"]
         end
-      end
 
-      saltbox.vm.hostname    = "#{my_host}.example.com"
-      saltbox.ssh.insert_key = false
-
-      #
-      # If you're a salt master, generate the external pillar data from
-      # settings['pillar_data'][*] and set them as a external data pillar source.
-      #
-      $is_salt_master = (my_host == 'saltmaster') ? true : false
-      $salt_seed_master = {}
-      if ($is_salt_master == true)
-        saltbox.vm.synced_folder ".", "/vagrant", create: true
-        saltbox.vm.synced_folder "#{settings['salt']['salt_path']}", "/srv/salt", create: true
-        saltbox.vm.synced_folder "#{settings['salt']['pillar_path']}", "/srv/pillar", create: true
-      end
-
-      if settings['vm_provider'] == 'docker'
         saltbox.hostmanager.ip_resolver = proc do |machine|
           result = ""
           machine.communicate.execute("/sbin/ifconfig eth0") do |type, data|
@@ -55,17 +38,53 @@ Vagrant.configure(2) do |config|
         end
       end
 
+      saltbox.vm.hostname = "#{my_host}.example.com"
+      saltbox.ssh.insert_key = false
+
+      is_master = (my_host == 'saltmaster')
+
+      #
+      # If you're a salt master, generate the external pillar data from
+      # settings['pillar_data'][*] and set them as a external data pillar source.
+      #
+      if is_master
+        saltbox.vm.synced_folder "#{settings['salt']['salt_path']}", "/srv/salt", create: true
+        saltbox.vm.synced_folder "#{settings['salt']['pillar_path']}", "/srv/pillar", create: true
+      end
+
       saltbox.vm.provision "salt" do |salt|
-        salt.install_type = "stable 2016.11.5"
+        salt.install_type = "stable"
+        salt.version = "2016.11.5"
         salt.run_highstate = false
         salt.verbose = true
         salt.colorize = true
         salt.log_level = 'debug'
         salt.bootstrap_options = '-P -p python-gnupg -p gnupg2 -p tar'
 
-        if ($is_salt_master == true)
-          salt.bootstrap_options += ' -M -S'
+        if is_master
           salt.install_master = true
+          salt.master_config = "saltstack/etc/saltmaster/master"
+          salt.minion_config = "saltstack/etc/saltmaster/minion"
+
+          salt.master_key = "saltstack/keys/saltmaster.pem"
+          salt.master_pub = "saltstack/keys/saltmaster.pub"
+
+          salt.minion_key = "saltstack/keys/saltmaster.pem"
+          salt.minion_pub = "saltstack/keys/saltmaster.pub"
+
+          minion_keys = {}
+          settings['hosts'].each do |minion|
+            minion_keys[minion] = "saltstack/keys/#{minion}.pub"
+          end
+
+          salt.seed_master = minion_keys
+        else
+          #
+          # The minion keys and the config should be present.
+          #
+          salt.minion_config = "saltstack/etc/#{my_host}/minion"
+          salt.minion_key = "saltstack/keys/#{my_host}.pem"
+          salt.minion_pub = "saltstack/keys/#{my_host}.pub"
         end
       end
     end
